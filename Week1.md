@@ -10,9 +10,9 @@ The real-world problem is how a company can store and share information in the c
 
 The system is modeled as:
 
-\[
+$$
 S = (X, R, f, Y, C)
-\]
+$$
 
 where:
 
@@ -28,11 +28,11 @@ where:
 
 For an access request, define
 
-\[
+$$
 x_i = (u_i, r_i, d_i, a_i, t_i, q_i)
-\]
+$$
 
-where \(u_i\) is the user, \(r_i\) is the user's role, \(d_i\) is the requested resource, \(a_i\) is the requested action, \(t_i\) is the device and authentication state, and \(q_i\) is the request context.
+where $u_i$ is the user, $r_i$ is the user's role, $d_i$ is the requested resource, $a_i$ is the requested action, $t_i$ is the device and authentication state, and $q_i$ is the request context.
 
 The objects include users, groups, roles, files, databases, devices, authentication tokens, policies, and audit records.
 
@@ -40,11 +40,11 @@ The objects include users, groups, roles, files, databases, devices, authenticat
 
 The relationships can be represented as:
 
-\[
+$$
 R \subseteq U \times G \times P \times D
-\]
+$$
 
-where \(U\) is the set of users, \(G\) the set of groups or roles, \(P\) the set of permissions, and \(D\) the set of data resources.
+where $U$ is the set of users, $G$ the set of groups or roles, $P$ the set of permissions, and $D$ the set of data resources.
 
 Examples include an employee belonging to Engineering, Engineering being allowed to read a project folder, a manager approving temporary permission, and an auditor inspecting logs without changing business data.
 
@@ -52,29 +52,28 @@ Examples include an employee belonging to Engineering, Engineering being allowed
 
 The access-control function evaluates the request against relationships and constraints:
 
-\[
+```text
 f(x_i, R, C) =
-\begin{cases}
-1, & \text{if the request is permitted},\\
-0, & \text{if the request is denied}.
-\end{cases}
-\]
+  1, if the request is permitted
+  0, if the request is denied
+```
 
 A request is permitted only when all required conditions are true:
 
-\[
-f(x_i,R,C)=1 \iff M(u_i,d_i,a_i) \land A(u_i) \land T(t_i) \land K(q_i) \land E(d_i)
-\]
+```text
+f(x_i, R, C) = 1 if and only if
+M(u_i, d_i, a_i) AND A(u_i) AND T(t_i) AND K(q_i) AND E(d_i)
+```
 
-Here, \(M\) checks the role permission, \(A\) checks authentication, \(T\) checks device trust, \(K\) checks contextual policy, and \(E\) checks whether the data is eligible for the requested action.
+Here, $M$ checks the role permission, $A$ checks authentication, $T$ checks device trust, $K$ checks contextual policy, and $E$ checks whether the data is eligible for the requested action.
 
 ### Output/decision: Y
 
 The output is an access decision:
 
-\[
+$$
 y_i \in \{\text{allow},\ \text{deny},\ \text{allow with approval}\}
-\]
+$$
 
 Reading a normal team document may produce **allow**, downloading a restricted database may produce **allow with approval**, and accessing HR records without the HR role may produce **deny**.
 
@@ -90,7 +89,7 @@ We are modeling secure company access to cloud files and applications. The compa
 
 ### 2. What mathematical objects are required?
 
-The model requires sets of users \(U\), roles \(G\), permissions \(P\), resources \(D\), actions \(A\), authentication states, risk contexts, relationships \(R\), constraints \(C\), and an access function \(f\).
+The model requires sets of users $U$, roles $G$, permissions $P$, resources $D$, actions $A$, authentication states, risk contexts, relationships $R$, constraints $C$, and an access function $f$.
 
 ### 3. What information is represented?
 
@@ -102,7 +101,7 @@ The simplified model omits detailed file contents, the complete cloud-provider i
 
 ### 5. What transformation is performed?
 
-The function \(f\) compares the request with role permissions, authentication requirements, device conditions, context, data classification, and approval rules. It transforms those inputs into an allow, deny, or approval-required decision.
+The function $f$ compares the request with role permissions, authentication requirements, device conditions, context, data classification, and approval rules. It transforms those inputs into an allow, deny, or approval-required decision.
 
 ### 6. What decision is produced?
 
@@ -118,8 +117,7 @@ Uncertainty appears in stolen credentials, inaccurate device-risk information, i
 
 ### 9. Could an attacker manipulate the input or model?
 
-Yes. An attacker could steal a session token, impersonate a user, compromise a device, change group membership, exploit a policy error, or manipulate contextual signals. Furthermore,
-a defect at the kernel level may allow priviledge escalation exploits to be executed if the attacker has access to the internal system.
+Yes. An attacker could steal a session token, impersonate a user, compromise a device, change group membership, exploit a policy error, or manipulate contextual signals. Furthermore, a defect at the kernel level may allow privilege-escalation exploits if the attacker gains access to the internal system.
 
 ### 10. How would you test whether the model is useful?
 
@@ -148,21 +146,21 @@ flowchart LR
 
 Alice is a basic employee in Engineering and requests to read an Engineering project document. She has valid multi-factor authentication and uses a managed device. If the document is shared with Engineering, then:
 
-\[
+$$
 M(\text{Alice},\text{document},\text{read})=1,\quad A=1,\quad T=1,\quad K=1,\quad E=1
-\]
+$$
 
 Therefore:
 
-\[
+$$
 f(x_i,R,C)=1 \quad \Rightarrow \quad y_i=\text{allow}.
-\]
+$$
 
 If Alice requests to download a highly restricted HR database, the role-permission condition is false:
 
-\[
+$$
 M(\text{Alice},\text{HR database},\text{download})=0
-\]
+$$
 
 so the system returns **deny**, even if her password and multi-factor authentication are valid.
 
