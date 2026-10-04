@@ -192,74 +192,74 @@ $$
 
 so the system returns **deny**, even if her password and multi-factor authentication are valid.
 
-## Additional worked mathematical example: risk-based authentication
+## Additional worked mathematical example: Alice's cloud access request
 
-The same cloud service can use a numerical risk model before making an
-authentication decision. Let the input vector for one login be
-
-$$
-x =
-\begin{bmatrix}
-4\\
-1\\
-0.7
-\end{bmatrix},
-$$
-
-where $x_1$ is the number of failed logins, $x_2$ is a new-device indicator
-($1$ for a new device and $0$ for a known device), and $x_3$ is a location-risk
-score between $0$ and $1$.
-
-Define the risk function
+This example applies the model directly to the protected cloud service. Alice
+is an employee in Engineering and requests to read an Engineering project
+document from a managed device. Represent the request as
 
 $$
-r(x) = 0.5x_1 + 2x_2 + x_3.
+x_i=(u_i,r_i,d_i,a_i,t_i,q_i)
 $$
 
-For this login,
+with
 
 $$
-r(x) = 0.5(4) + 2(1) + 0.7 = 2 + 2 + 0.7 = 4.7.
+x_i=(\text{Alice},\text{Engineering},\text{project document},
+\text{read},\text{MFA + managed device},\text{normal context}).
 $$
 
-If the policy blocks authentication whenever $r(x) \geq 4$, the decision
-function is
+For the normal context, suppose the risk inputs are four failed logins, a new
+device indicator of $1$, and a location-risk score of $0.7$. The risk score is
 
 $$
-d(x) =
-\begin{cases}
-\text{allow}, & r(x) < 4,\\
-\text{block}, & r(x) \geq 4.
-\end{cases}
+r(q_i)=0.5(4)+2(1)+0.7=4.7.
 $$
 
-Since $4.7 \geq 4$, the model returns **block**. In this example:
-
-- **Input:** failed-login count, device status, and location risk;
-- **Transformation:** the weighted sum $r(x)$;
-- **Parameter:** the weights $(0.5, 2, 1)$;
-- **Constraint/threshold:** block when the score is at least $4$; and
-- **Output:** the authentication decision **block**.
-
-The arithmetic is correct, but the decision is not proof that the user is
-malicious. The model may produce a false positive when a legitimate user
-travels or replaces a device, and a false negative when an attacker imitates
-normal behaviour. Therefore, the model should be tested using labelled login
-events and evaluated separately for
+The policy requires the contextual risk score to be below $5$ for an ordinary
+read request, so $K(q_i)=1$. The remaining model conditions are
 
 $$
-P(d=\text{block}\mid y=\text{legitimate})
+M(u_i,d_i,a_i)=1,\quad A(u_i)=1,\quad T(t_i)=1,\quad
+K(q_i)=1,\quad E(d_i)=1.
 $$
 
-and
+Therefore, the access transformation gives
 
 $$
-P(d=\text{allow}\mid y=\text{malicious}),
+f(x_i,R,C)=
+M\land A\land T\land K\land E
+=1\land1\land1\land1\land1=1,
 $$
 
-where $y$ is the actual status of the login. This illustrates the PDF's key
-distinction: a mathematically correct calculation does not automatically
-guarantee a correct real-world decision.
+so the output is
+
+$$
+y_i=\text{allow}.
+$$
+
+This example identifies the complete model: $x_i$ is the input request, $R$
+supplies Alice's Engineering role and its read permission, $f$ checks the five
+conditions, and $C$ supplies the risk threshold and least-privilege policy.
+
+If Alice instead requests to download the highly restricted HR database, then
+
+$$
+M(\text{Alice},\text{HR database},\text{download})=0.
+$$
+
+Consequently, even with valid MFA and a trusted device,
+
+$$
+f(x_i,R,C)=0\quad\Rightarrow\quad y_i=\text{deny}.
+$$
+
+The model is mathematically consistent, but it is still an approximation. A
+wrong role assignment, inaccurate risk score, or compromised device could
+produce a false allow or false deny. The model should therefore be tested with
+labelled access requests, including revoked users, unmanaged devices, and
+misclassified resources. This follows the PDF's distinction between a correct
+calculation and a valid real-world decision.
 
 ## Conclusion
 
