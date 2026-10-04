@@ -10,9 +10,9 @@ The real-world problem is how a company can store and share information in the c
 
 The system is modeled as:
 
-$$
+```text
 S = (X, R, f, Y, C)
-$$
+```
 
 where:
 
@@ -28,54 +28,54 @@ where:
 
 For an access request, define
 
-$$
+```text
 x_i = (u_i, r_i, d_i, a_i, t_i, q_i)
-$$
+```
 
-where $u_i$ is the user, $r_i$ is the user's role, $d_i$ is the requested resource, $a_i$ is the requested action, $t_i$ is the device and authentication state, and $q_i$ is the request context.
+where `u_i` is the user, `r_i` is the user's role, `d_i` is the requested resource, `a_i` is the requested action, `t_i` is the device and authentication state, and `q_i` is the request context.
 
 The objects include users, groups, roles, files, databases, devices, authentication tokens, policies, and audit records.
 
 ### Relationships: R
 
-Let the available actions be
-
-$$
-A=\{\text{read},\text{write},\text{download},\text{share}\}.
-$$
-
-Represent each action by one bit in a fixed order:
+Every permission is stored in one 64-bit unsigned integer (`uint64`). In
+hexadecimal notation, `0x40` is 64 decimal, so the key has `0x40` bits. It is
+divided into two `0x20`-bit fields; `0x20` is 32 decimal:
 
 ```text
-(read, write, download, share)
+bits 63..32: privilege level       bits 31..0: action permissions
 ```
 
-For example, `1100` means `{read, write}` and `0010` means `{download}`.
-Thus, a privilege set is represented by a four-bit mask in
-$\{0,1\}^4$. The relationship set records which role may use which
-privileges on which resource:
+The upper `0x20` bits represent the level at which a person may act. The lower
+`0x20` bits represent the actions they may perform. The relationship set records
+which role may use which 64-bit permission key on which resource:
 
-$$
-R\subseteq U\times G\times D\times\{0,1\}^4.
-$$
+```text
+R ⊆ U × G × D × uint64
+```
 
-For an access request, each component supplies its own set of privileges:
+The level and action constants used in this model are:
 
-$$
-p_M,p_A,p_T,p_K,p_E\in\{0,1\}^4,
-$$
+```text
+WORKER_LEVEL = 0x0000000100000000
+BOSS_LEVEL   = 0x0000000300000000
 
-where $p_M$ is the role-permission mask, $p_A$ is the authentication mask,
-$p_T$ is the trusted-device mask, $p_K$ is the contextual-policy mask, and
-$p_E$ is the resource-eligibility mask. A zero bit means that component does
-not grant that action.
+READ         = 0x0000000000000001
+WRITE        = 0x0000000000000002
+DOWNLOAD     = 0x0000000000000004
+SHARE        = 0x0000000000000008
+APPROVE      = 0x0000000000000010
+```
 
-The requested action is also represented by a one-hot mask $q(a_i)$. For
-example, $q(\text{read})=1000$ and $q(\text{download})=0010$.
+`BOSS_LEVEL` contains both the worker bit and the boss bit. Therefore, a boss
+also has worker-level permission. For example, a worker who can read and
+write has key `0x0000000100000003`, while a boss who can read, write, download,
+and share has key `0x000000030000000F`.
 
-For example, a relationship may state that Engineering has mask `1100` on a
-project document, meaning that its members may read and write but may not
-download or share it.
+Each component supplies its own 64-bit permission key. In this model the
+components are role membership (`M`), authentication (`A`), trusted device
+(`T`), context or policy (`K`), and resource eligibility (`E`). A zero bit in
+any component removes that privilege from the ordinary decision.
 
 ### Transformation: f
 
@@ -87,36 +87,41 @@ f(x_i, R, C) =
   deny,  if the request is denied
 ```
 
-A request is permitted only when the requested bit survives every component's
-privilege mask. The effective privilege mask is the bitwise AND
+A request key contains both the required level and the requested action. The
+ordinary permission is the bitwise AND of every component key:
 
-$$
-p_{\mathrm{eff}}(x_i)=p_M\mathbin{\&}p_A\mathbin{\&}p_T\mathbin{\&}p_K\mathbin{\&}p_E.
-$$
+```text
+base = M & A & T & K & E
+```
 
-The access function is therefore
+An audit decision may grant a time-limited special permission. That permission
+is ORed with the ordinary result:
 
-$$
-f(x_i,R,C)=
-\begin{cases}
-\text{allow}, & (p_{\mathrm{eff}}(x_i)\mathbin{\&}q(a_i))=q(a_i),\\
-\text{deny}, & \text{otherwise}.
-\end{cases}
-$$
+```text
+total = base | audit_grant
+```
 
-This is a bitwise AND, not a logical AND. It guarantees that every requested
-privilege is granted by every component.
+The final decision is:
+
+```text
+allow if (total & request) == request
+deny  otherwise
+```
+
+Here `&` and `|` are bitwise AND and bitwise OR. The audit grant must contain
+both the required level bit and the required action bit; it cannot bypass the
+level check by granting only the action.
 
 ### Output/decision: Y
 
 The output is an access decision:
 
-$$
-y_i \in \{\text{allow},\ \text{deny}\}.
-$$
+```text
+y_i ∈ {allow, deny}
+```
 
-An approval or step-up process can change one of the component masks, after
-which the same bitwise rule is evaluated again.
+An audit approval adds a temporary `audit_grant` to `total`; after expiry, that
+grant becomes zero and the ordinary AND result applies again.
 
 ### Constraints: C
 
@@ -130,7 +135,7 @@ We are modeling secure company access to cloud files and applications. The compa
 
 ### 2. What mathematical objects are required?
 
-The model requires sets of users $U$, roles $G$, permissions $P$, resources $D$, actions $A$, authentication states, risk contexts, relationships $R$, constraints $C$, and an access function $f$.
+The model requires sets of users `U`, roles `G`, resources `D`, privilege levels, action permissions, 64-bit permission keys, authentication states, risk contexts, relationships `R`, constraints `C`, and an access function `f`.
 
 ### 3. What information is represented?
 
@@ -142,11 +147,11 @@ The simplified model omits detailed file contents, the complete cloud-provider i
 
 ### 5. What transformation is performed?
 
-The function $f$ represents each component's privileges as a bit mask, computes their bitwise AND, and checks whether the requested-action bit remains set. It transforms the request into an allow or deny decision.
+The function `f` represents each component's privileges as a bit mask, computes their bitwise AND, and checks whether the requested-action bit remains set. It transforms the request into an allow or deny decision.
 
 ### 6. What decision is produced?
 
-The system decides whether the user may perform the requested action. An approval or step-up authentication process may update a component's privilege mask, after which the same allow/deny rule is applied again.
+The system decides whether the user may perform the requested action. An audit approval contributes an `audit_grant`, which is ORed with the ordinary AND result before the same allow/deny rule is applied.
 
 ### 7. What assumptions are required?
 
@@ -173,6 +178,7 @@ flowchart LR
     R --> P[Policy engine]
     D[Device trust and context] --> P
     F[Requested file or service] --> P
+    Au[Audit approval] --> P
     P -->|allow| G[Grant requested action]
     P -->|deny| N[Reject request]
     G --> L[Encrypted cloud resource]
@@ -185,64 +191,86 @@ flowchart LR
 Alice is a basic employee in Engineering and requests to read an Engineering
 project document. In the input tuple,
 
-$$
-x_i=(\text{Alice},\text{Engineering},\text{project document},
-\text{read},\text{MFA + managed device},\text{normal context}).
-$$
+```text
+x_i = (Alice, Engineering, project document, read,
+       MFA + managed device, normal context)
+```
 
-Use the bit order
-`(read, write, download, share)`. The request mask is
+The request needs worker-level read permission:
 
-$$
-q(\text{read})=1000.
-$$
+```text
+request = WORKER_LEVEL | READ
+        = 0x0000000100000001
+```
 
-Each component gives the request the following privilege set:
+The component permission keys are:
 
-$$
-p_M=1100,\quad p_A=1111,\quad p_T=1110,\quad
-p_K=1110,\quad p_E=1100.
-$$
+```text
+M = 0x0000000100000003  # Engineering worker: read + write
+A = 0x00000003FFFFFFFF  # successful MFA
+T = 0x0000000100000007  # managed device: read + write + download
+K = 0x0000000100000007  # normal context
+E = 0x0000000100000003  # project document: read + write
+```
 
-These masks mean that Alice's Engineering role permits reading and writing,
-MFA permits all four actions, the managed device and normal context permit
-reading, writing, and downloading, and the project document is eligible for
-reading and writing. The effective privileges are computed by bitwise AND:
+The ordinary permission is:
 
-$$
-p_{\mathrm{eff}}=1100\mathbin{\&}1111\mathbin{\&}1110\mathbin{\&}1110
-\mathbin{\&}1100=1100.
-$$
+```text
+base = M & A & T & K & E
+     = 0x0000000100000003
+audit_grant = 0x0000000000000000
+total = base | audit_grant
+      = 0x0000000100000003
+```
 
-Because the requested read bit is present,
+The request is allowed because:
 
-$$
-(p_{\mathrm{eff}}\mathbin{\&}q(\text{read}))
-=1100\mathbin{\&}1000=1000=q(\text{read}),
-$$
+```text
+(total & request) == request
+(0x0000000100000003 & 0x0000000100000001)
+    == 0x0000000100000001
+```
 
-the model returns **allow**.
+Therefore, `y_i = allow`.
 
 Now consider the same user's request to download a highly restricted HR
-database. Its request mask is $q(\text{download})=0010$. The role and resource
-components do not grant that privilege:
+database. The request is still at worker level, but now asks for `DOWNLOAD`:
 
-$$
-p_M=1100,\qquad p_E=0000.
-$$
+```text
+request = WORKER_LEVEL | DOWNLOAD
+        = 0x0000000100000004
+```
 
-Therefore, the effective mask has no download bit, regardless of the other
-components:
+The ordinary component keys for this restricted resource include:
 
-$$
-p_{\mathrm{eff}}\mathbin{\&}q(\text{download})
-=(1100\mathbin{\&}1111\mathbin{\&}1110\mathbin{\&}1110\mathbin{\&}0000)
-\mathbin{\&}0010=0000\neq0010.
-$$
+```text
+M = 0x0000000100000003  # Alice is still a worker
+E = 0x0000000100000000  # HR resource grants no ordinary action
+base = M & A & T & K & E
+     = 0x0000000100000000
+```
 
-The model consequently returns **deny**. Both outcomes are parts of one
-example: access is allowed only when the requested action bit is present in
-the privilege set of every component.
+The ordinary result is denied because the download bit is not in `base`.
+However, an auditor can grant a temporary special download permission at the
+same worker level:
+
+```text
+audit_grant = 0x0000000100000004
+total = base | audit_grant
+      = 0x0000000100000004
+```
+
+Now the request is allowed because:
+
+```text
+(total & request) == request
+(0x0000000100000004 & 0x0000000100000004)
+    == 0x0000000100000004
+```
+
+After the audit grant expires, `audit_grant` returns to zero and the same
+request is denied again. This single example demonstrates ordinary access,
+denial, hierarchical boss/worker levels, and an audited special permission.
 
 ## Conclusion
 
