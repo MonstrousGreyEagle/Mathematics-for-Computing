@@ -38,43 +38,44 @@ The objects include users, groups, roles, files, databases, devices, authenticat
 
 ### Relationships: R
 
-The relationships can be represented as:
+Let the available actions be
+
+$$
+A=\{\text{read},\text{write},\text{download},\text{share}\}.
+$$
+
+Represent each action by one bit in a fixed order:
 
 ```text
-R = U × G × P × D
+(read, write, download, share)
 ```
 
-Here, `×` means a Cartesian product. Each relationship is a tuple
-`(u, g, p, d)` containing one element from each set:
+For example, `1100` means `{read, write}` and `0010` means `{download}`.
+Thus, a privilege set is represented by a four-bit mask in
+$\{0,1\}^4$. The relationship set records which role may use which
+privileges on which resource:
 
-- `U`: user identifiers;
-- `G`: groups or roles;
-- `P`: permissions or actions; and
-- `D`: data resources.
+$$
+R\subseteq U\times G\times D\times\{0,1\}^4.
+$$
 
-To store the tuple as one fixed-width bit string, assign each set a separate,
-non-overlapping bit field:
+For an access request, each component supplies its own set of privileges:
 
-```text
-U = {0, 1}^bU
-G = {0, 1}^bG
-P = {0, 1}^bP
-D = {0, 1}^bD
+$$
+p_M,p_A,p_T,p_K,p_E\in\{0,1\}^4,
+$$
 
-encode(u, g, p, d) = u || g || p || d
-```
+where $p_M$ is the role-permission mask, $p_A$ is the authentication mask,
+$p_T$ is the trusted-device mask, $p_K$ is the contextual-policy mask, and
+$p_E$ is the resource-eligibility mask. A zero bit means that component does
+not grant that action.
 
-The fields occupy different bit positions, so the encoding is unambiguous:
+The requested action is also represented by a one-hot mask $q(a_i)$. For
+example, $q(\text{read})=1000$ and $q(\text{download})=0010$.
 
-```text
-| user bits (bU) | group bits (bG) | permission bits (bP) | data bits (bD) |
-```
-
-Thus, the total relationship length is
-`bU + bG + bP + bD` bits. The `^` in `{0, 1}^bU` denotes a set of bit
-strings of length `bU`; it does not mean bitwise XOR.
-
-Examples include an employee belonging to Engineering, Engineering being allowed to read a project folder, a manager approving temporary permission, and an auditor inspecting logs without changing business data.
+For example, a relationship may state that Engineering has mask `1100` on a
+project document, meaning that its members may read and write but may not
+download or share it.
 
 ### Transformation: f
 
@@ -86,24 +87,36 @@ f(x_i, R, C) =
   deny,  if the request is denied
 ```
 
-A request is permitted only when all required conditions are true:
+A request is permitted only when the requested bit survives every component's
+privilege mask. The effective privilege mask is the bitwise AND
 
-```text
-f(x_i, R, C) = allow if and only if
-M(u_i, d_i, a_i) AND A(u_i) AND T(t_i) AND K(q_i) AND E(d_i)
-```
+$$
+p_{\mathrm{eff}}(x_i)=p_M\mathbin{\&}p_A\mathbin{\&}p_T\mathbin{\&}p_K\mathbin{\&}p_E.
+$$
 
-Here, $M$ checks the role permission, $A$ checks authentication, $T$ checks device trust, $K$ checks contextual policy, and $E$ checks whether the data is eligible for the requested action.
+The access function is therefore
+
+$$
+f(x_i,R,C)=
+\begin{cases}
+\text{allow}, & (p_{\mathrm{eff}}(x_i)\mathbin{\&}q(a_i))=q(a_i),\\
+\text{deny}, & \text{otherwise}.
+\end{cases}
+$$
+
+This is a bitwise AND, not a logical AND. It guarantees that every requested
+privilege is granted by every component.
 
 ### Output/decision: Y
 
 The output is an access decision:
 
 $$
-y_i \in \{\text{allow},\ \text{deny},\ \text{allow with approval}\}
+y_i \in \{\text{allow},\ \text{deny}\}.
 $$
 
-Reading a normal team document may produce **allow**, downloading a restricted database may produce **allow with approval**, and accessing HR records without the HR role may produce **deny**.
+An approval or step-up process can change one of the component masks, after
+which the same bitwise rule is evaluated again.
 
 ### Constraints: C
 
@@ -129,11 +142,11 @@ The simplified model omits detailed file contents, the complete cloud-provider i
 
 ### 5. What transformation is performed?
 
-The function $f$ compares the request with role permissions, authentication requirements, device conditions, context, data classification, and approval rules. It transforms those inputs into an allow, deny, or approval-required decision.
+The function $f$ represents each component's privileges as a bit mask, computes their bitwise AND, and checks whether the requested-action bit remains set. It transforms the request into an allow or deny decision.
 
 ### 6. What decision is produced?
 
-The system decides whether the user may perform the requested action. It may also require additional approval, step-up authentication, or a shorter access period before allowing a sensitive action.
+The system decides whether the user may perform the requested action. An approval or step-up authentication process may update a component's privilege mask, after which the same allow/deny rule is applied again.
 
 ### 7. What assumptions are required?
 
@@ -162,104 +175,74 @@ flowchart LR
     F[Requested file or service] --> P
     P -->|allow| G[Grant requested action]
     P -->|deny| N[Reject request]
-    P -->|approval required| A[Manager or data-owner approval]
-    A --> G
     G --> L[Encrypted cloud resource]
     N --> Lg[Audit log]
     G --> Lg
-    A --> Lg
 ```
 
 ## Worked example
 
-Alice is a basic employee in Engineering and requests to read an Engineering project document. She has valid multi-factor authentication and uses a managed device. If the document is shared with Engineering, then:
-
-$$
-M(\text{Alice},\text{document},\text{read})=1,\quad A=1,\quad T=1,\quad K=1,\quad E=1
-$$
-
-Therefore:
-
-$$
-f(x_i,R,C)=1 \quad \Rightarrow \quad y_i=\text{allow}.
-$$
-
-If Alice requests to download a highly restricted HR database, the role-permission condition is false:
-
-$$
-M(\text{Alice},\text{HR database},\text{download})=0
-$$
-
-so the system returns **deny**, even if her password and multi-factor authentication are valid.
-
-## Additional worked mathematical example: Alice's cloud access request
-
-This example applies the model directly to the protected cloud service. Alice
-is an employee in Engineering and requests to read an Engineering project
-document from a managed device. Represent the request as
-
-$$
-x_i=(u_i,r_i,d_i,a_i,t_i,q_i)
-$$
-
-with
+Alice is a basic employee in Engineering and requests to read an Engineering
+project document. In the input tuple,
 
 $$
 x_i=(\text{Alice},\text{Engineering},\text{project document},
 \text{read},\text{MFA + managed device},\text{normal context}).
 $$
 
-For the normal context, suppose the risk inputs are four failed logins, a new
-device indicator of $1$, and a location-risk score of $0.7$. The risk score is
+Use the bit order
+`(read, write, download, share)`. The request mask is
 
 $$
-r(q_i)=0.5(4)+2(1)+0.7=4.7.
+q(\text{read})=1000.
 $$
 
-The policy requires the contextual risk score to be below $5$ for an ordinary
-read request, so $K(q_i)=1$. The remaining model conditions are
+Each component gives the request the following privilege set:
 
 $$
-M(u_i,d_i,a_i)=1,\quad A(u_i)=1,\quad T(t_i)=1,\quad
-K(q_i)=1,\quad E(d_i)=1.
+p_M=1100,\quad p_A=1111,\quad p_T=1110,\quad
+p_K=1110,\quad p_E=1100.
 $$
 
-Therefore, the access transformation gives
+These masks mean that Alice's Engineering role permits reading and writing,
+MFA permits all four actions, the managed device and normal context permit
+reading, writing, and downloading, and the project document is eligible for
+reading and writing. The effective privileges are computed by bitwise AND:
 
 $$
-f(x_i,R,C)=
-M\land A\land T\land K\land E
-=1\land1\land1\land1\land1=1,
+p_{\mathrm{eff}}=1100\mathbin{\&}1111\mathbin{\&}1110\mathbin{\&}1110
+\mathbin{\&}1100=1100.
 $$
 
-so the output is
+Because the requested read bit is present,
 
 $$
-y_i=\text{allow}.
+(p_{\mathrm{eff}}\mathbin{\&}q(\text{read}))
+=1100\mathbin{\&}1000=1000=q(\text{read}),
 $$
 
-This example identifies the complete model: $x_i$ is the input request, $R$
-supplies Alice's Engineering role and its read permission, $f$ checks the five
-conditions, and $C$ supplies the risk threshold and least-privilege policy.
+the model returns **allow**.
 
-If Alice instead requests to download the highly restricted HR database, then
-
-$$
-M(\text{Alice},\text{HR database},\text{download})=0.
-$$
-
-Consequently, even with valid MFA and a trusted device,
+Now consider the same user's request to download a highly restricted HR
+database. Its request mask is $q(\text{download})=0010$. The role and resource
+components do not grant that privilege:
 
 $$
-f(x_i,R,C)=0\quad\Rightarrow\quad y_i=\text{deny}.
+p_M=1100,\qquad p_E=0000.
 $$
 
-The model is mathematically consistent, but it is still an approximation. A
-wrong role assignment, inaccurate risk score, or compromised device could
-produce a false allow or false deny. The model should therefore be tested with
-labelled access requests, including revoked users, unmanaged devices, and
-misclassified resources. This follows the PDF's distinction between a correct
-calculation and a valid real-world decision.
+Therefore, the effective mask has no download bit, regardless of the other
+components:
+
+$$
+p_{\mathrm{eff}}\mathbin{\&}q(\text{download})
+=(1100\mathbin{\&}1111\mathbin{\&}1110\mathbin{\&}1110\mathbin{\&}0000)
+\mathbin{\&}0010=0000\neq0010.
+$$
+
+The model consequently returns **deny**. Both outcomes are parts of one
+example: access is allowed only when the requested action bit is present in
+the privilege set of every component.
 
 ## Conclusion
 
